@@ -63,6 +63,25 @@ jobs:
             echo "image_name=$(basename *.dmg.img)" >> $GITHUB_OUTPUT
           fi
 
+      - name: Install torrent tool
+        run: brew install mktorrent
+
+      - name: Create torrent file
+        run: |
+          FILE=$(ls *.iso 2>/dev/null || ls *.dmg.img)
+          mktorrent \
+          -o "$FILE.torrent" \
+          -a udp://tracker.opentrackr.org:1337/announce \
+          -a udp://tracker.openbittorrent.com:6969/announce \
+          -a udp://tracker.internetwarriors.net:1337/announce \
+          "$FILE"
+          
+      - name: Upload torrent
+        uses: actions/upload-artifact@v5
+        with:
+          name: torrent-file
+          path: ./*.torrent
+
       - name: Upload ISO artifact
         if: github.event.inputs.image_format == 'iso' && steps.create_image.outcome == 'success'
         uses: actions/upload-artifact@v5
