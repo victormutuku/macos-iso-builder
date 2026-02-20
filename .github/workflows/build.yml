@@ -62,28 +62,13 @@ jobs:
             sudo bash mkmaciso "${{ github.event.inputs.macos_version }}" dmg
             echo "image_name=$(basename *.dmg.img)" >> $GITHUB_OUTPUT
           fi
-          
-      - name: Split image into parts
-        if: steps.create_image.outcome == 'success'
-        run: |
-          if [ "${{ github.event.inputs.image_format }}" == "iso" ]; then
-            FILE=$(ls *.iso)
-          else
-            FILE=$(ls *.dmg.img)
-          fi
-
-          echo "Splitting $FILE"
-          split -b 1000M "$FILE" "$FILE.part-"
-
-          echo "Parts created:"
-          ls -lh "$FILE.part-"*
 
       - name: Upload ISO artifact
         if: github.event.inputs.image_format == 'iso' && steps.create_image.outcome == 'success'
         uses: actions/upload-artifact@v5
         with:
           name: ${{ steps.create_image.outputs.image_name }}
-          path: ./*.iso.part-*
+          path: ./*.iso
           compression-level: 0
           retention-days: 15
 
@@ -92,9 +77,23 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: ${{ steps.create_image.outputs.image_name }}
-          path: ./*.dmg.img.part-*
+          path: ./*.dmg.img
           compression-level: 0
           retention-days: 15
+
+      - name: Create Release
+        if: steps.create_image.outcome == 'success'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_id }}
+          name: macOS Build ${{ github.run_id }}
+          draft: false
+          prerelease: false
+          files: |
+            *.iso
+            *.dmg.img
+          env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Summary
         if: always()
