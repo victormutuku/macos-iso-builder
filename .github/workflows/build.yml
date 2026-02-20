@@ -83,7 +83,7 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: ${{ steps.create_image.outputs.image_name }}
-          path: ./*.iso
+          path: ./*.iso.part-*
           compression-level: 0
           retention-days: 15
 
@@ -92,7 +92,7 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: ${{ steps.create_image.outputs.image_name }}
-          path: ./*.dmg.img
+          path: ./*.dmg.img.part-*
           compression-level: 0
           retention-days: 15
 
