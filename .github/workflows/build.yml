@@ -62,6 +62,21 @@ jobs:
             sudo bash mkmaciso "${{ github.event.inputs.macos_version }}" dmg
             echo "image_name=$(basename *.dmg.img)" >> $GITHUB_OUTPUT
           fi
+          
+      - name: Split image into parts
+        if: steps.create_image.outcome == 'success'
+        run: |
+          if [ "${{ github.event.inputs.image_format }}" == "iso" ]; then
+            FILE=$(ls *.iso)
+          else
+            FILE=$(ls *.dmg.img)
+          fi
+
+          echo "Splitting $FILE"
+          split -b 1000M "$FILE" "$FILE.part-"
+
+          echo "Parts created:"
+          ls -lh "$FILE.part-"*
 
       - name: Upload ISO artifact
         if: github.event.inputs.image_format == 'iso' && steps.create_image.outcome == 'success'
