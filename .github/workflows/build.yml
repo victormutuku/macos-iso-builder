@@ -68,8 +68,8 @@ jobs:
         if: ${{ steps.create_image.outcome == 'success' }}
         run: |
           python3 -m pip install --break-system-packages PyJWT cryptography requests
-
-          FILE=$(ls *.iso 2>/dev/null || ls *.dmg.img)
+          
+          FILE="${{ steps.create_image.outputs.image_name }}"
 
           echo "$GDRIVE_SERVICE_KEY" > key.json
 
