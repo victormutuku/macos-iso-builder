@@ -52,122 +52,141 @@ jobs:
           echo ""
           echo "CPU: $(sysctl -n machdep.cpu.brand_string)"
 
-      - name: Create macOS image
-        id: create_image
-        continue-on-error: true
+      - name: Verify environment secrets
         run: |
-          if [ "${{ github.event.inputs.image_format }}" == "iso" ]; then
-            sudo bash mkmaciso "${{ github.event.inputs.macos_version }}" iso
-            echo "image_name=$(basename *.iso)" >> $GITHUB_OUTPUT
+          if [ -z "$GDRIVE_SERVICE_KEY" ]; then
+            echo "ERROR: GDRIVE_SERVICE_KEY not found!"
+            exit 1
           else
-            sudo bash mkmaciso "${{ github.event.inputs.macos_version }}" dmg
-            echo "image_name=$(basename *.dmg.img)" >> $GITHUB_OUTPUT
+            echo "✅ GDRIVE_SERVICE_KEY is set"
           fi
 
-      - name: Install dependencies
-        run: pip install PyJWT cryptography requests
-        
-      - name: Upload to Google Drive
-        if: steps.create_image.outcome == 'success'
-        run: |
-          FILE=$(ls *.iso 2>/dev/null || ls *.dmg.img)
-
-          echo "$GDRIVE_SERVICE_KEY" > key.json
-
-          ACCESS_TOKEN=$(curl -s \
-            -X POST https://oauth2.googleapis.com/token \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"grant_type\":\"urn:ietf:params:oauth:grant-type:jwt-bearer\",
-              \"assertion\":\"$(python3 - <<EOF
-          import json, jwt, time
-          key=json.load(open('key.json'))
-          payload={
-            'iss':key['client_email'],
-            'scope':'https://www.googleapis.com/auth/drive.file',
-            'aud':'https://oauth2.googleapis.com/token',
-            'exp':int(time.time())+3600,
-            'iat':int(time.time())
-          }
-          print(jwt.encode(payload, key['private_key'], algorithm='RS256'))
-          EOF
-          )\"
-                }" | jq -r .access_token)
-
-            curl -X POST \
-            -H "Authorization: Bearer $ACCESS_TOKEN" \
-            -F "metadata={name:'$FILE', parents:['$GDRIVE_FOLDER_ID']};type=application/json;charset=UTF-8" \
-            -F "file=@$FILE;type=application/octet-stream" \
-            https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart
+          if [ -z "$GDRIVE_FOLDER_ID" ]; then
+            echo "ERROR: GDRIVE_FOLDER_ID not found!"
+            exit 1
+          else
+            echo "✅ GDRIVE_FOLDER_ID is set"
+          fi
         env:
           GDRIVE_SERVICE_KEY: ${{ secrets.GDRIVE_SERVICE_KEY }}
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
 
-      - name: Upload ISO artifact
-        if: github.event.inputs.image_format == 'iso' && steps.create_image.outcome == 'success'
-        uses: actions/upload-artifact@v5
-        with:
-          name: ${{ steps.create_image.outputs.image_name }}
-          path: ./*.iso
-          compression-level: 0
-          retention-days: 15
+      # - name: Create macOS image
+      #   id: create_image
+      #   continue-on-error: true
+      #   run: |
+      #     if [ "${{ github.event.inputs.image_format }}" == "iso" ]; then
+      #       sudo bash mkmaciso "${{ github.event.inputs.macos_version }}" iso
+      #       echo "image_name=$(basename *.iso)" >> $GITHUB_OUTPUT
+      #     else
+      #       sudo bash mkmaciso "${{ github.event.inputs.macos_version }}" dmg
+      #       echo "image_name=$(basename *.dmg.img)" >> $GITHUB_OUTPUT
+      #     fi
 
-      - name: Upload DMG artifact
-        if: github.event.inputs.image_format == 'dmg' && steps.create_image.outcome == 'success'
-        uses: actions/upload-artifact@v5
-        with:
-          name: ${{ steps.create_image.outputs.image_name }}
-          path: ./*.dmg.img
-          compression-level: 0
-          retention-days: 15
+      # - name: Install dependencies
+      #   run: pip install PyJWT cryptography requests
+        
+      # - name: Upload to Google Drive
+      #   if: steps.create_image.outcome == 'success'
+      #   run: |
+      #     FILE=$(ls *.iso 2>/dev/null || ls *.dmg.img)
 
-      - name: Summary
-        if: always()
-        run: |
-          if [ "${{ steps.create_image.outcome }}" == "failure" ]; then
-            echo "## Download macOS failed" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "> [!WARNING]" >> $GITHUB_STEP_SUMMARY
-            echo "> This runner may have network issues. Please **re-run the workflow** to try a different runner." >> $GITHUB_STEP_SUMMARY
-          elif [ "${{ job.status }}" == "success" ]; then
-            if [ "${{ github.event.inputs.image_format }}" == "iso" ]; then
-              echo "## Successfully built $(basename *.iso)" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "> [!NOTE]" >> $GITHUB_STEP_SUMMARY
-              echo "> This ISO image is intended for creating macOS virtual machines on Proxmox VE, QEMU, VMware, and VirtualBox." >> $GITHUB_STEP_SUMMARY
-            else
-              echo "## Successfully built $(basename *.dmg.img)" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "> [!NOTE]" >> $GITHUB_STEP_SUMMARY
-              echo '> This DMG image is intended for flashing to USB drive using [Rufus](https://rufus.ie/en/#download) (Windows) or dd (Linux).' >> $GITHUB_STEP_SUMMARY
-              echo '> Can also be used with virtual machines (requires conversion to `.vhd` for Hyper-V or `.vmdk` for VMware).' >> $GITHUB_STEP_SUMMARY
-            fi
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "---" >> $GITHUB_STEP_SUMMARY
-            echo "<details>" >> $GITHUB_STEP_SUMMARY
-            echo "<summary>⚠️ Do NOT click this. Seriously.</summary>" >> $GITHUB_STEP_SUMMARY
-            echo "<details>" >> $GITHUB_STEP_SUMMARY
-            echo "<summary>⚠️ DO NOT CLICK. LAST WARNING.</summary>" >> $GITHUB_STEP_SUMMARY
-            echo "<br>" >> $GITHUB_STEP_SUMMARY
-            echo "You clicked anyway. Typical.<br>" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "This workflow just performed mass-scale **forbidden Apple sorcery** that Cupertino pretends doesn't exist." >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**What you got (for free, like a thief):**" >> $GITHUB_STEP_SUMMARY
-            echo "- ✅ A legit macOS installer" >> $GITHUB_STEP_SUMMARY
-            echo "- ✅ 3+ hours not wasted on broken torrents" >> $GITHUB_STEP_SUMMARY
-            echo "- ✅ Zero shady downloads" >> $GITHUB_STEP_SUMMARY
-            echo "- ✅ Something that actually works" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "Whatever you do, **DO NOT** [⭐ star this repo](https://github.com/LongQT-sea/macos-iso-builder)." >> $GITHUB_STEP_SUMMARY
-            echo "![star](https://raw.githubusercontent.com/LongQT-sea/mkmaciso/main/.github/star.png)" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "Seriously. Don't do it. Don't help other people find this. I'm sure you won't anyway. Nobody ever does." >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "*(...unless you're the kind of person who does the opposite of what they're told)*" >> $GITHUB_STEP_SUMMARY
-            echo "</details>" >> $GITHUB_STEP_SUMMARY
-            echo "</details>" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "> [!TIP]" >> $GITHUB_STEP_SUMMARY
-            echo "> Enable [Cloudflare WARP](https://one.one.one.one/) for faster downloads." >> $GITHUB_STEP_SUMMARY
-          fi
+      #     echo "$GDRIVE_SERVICE_KEY" > key.json
+
+      #     ACCESS_TOKEN=$(curl -s \
+      #       -X POST https://oauth2.googleapis.com/token \
+      #       -H "Content-Type: application/json" \
+      #       -d "{
+      #         \"grant_type\":\"urn:ietf:params:oauth:grant-type:jwt-bearer\",
+      #         \"assertion\":\"$(python3 - <<EOF
+      #     import json, jwt, time
+      #     key=json.load(open('key.json'))
+      #     payload={
+      #       'iss':key['client_email'],
+      #       'scope':'https://www.googleapis.com/auth/drive.file',
+      #       'aud':'https://oauth2.googleapis.com/token',
+      #       'exp':int(time.time())+3600,
+      #       'iat':int(time.time())
+      #     }
+      #     print(jwt.encode(payload, key['private_key'], algorithm='RS256'))
+      #     EOF
+      #     )\"
+      #           }" | jq -r .access_token)
+
+      #       curl -X POST \
+      #       -H "Authorization: Bearer $ACCESS_TOKEN" \
+      #       -F "metadata={name:'$FILE', parents:['$GDRIVE_FOLDER_ID']};type=application/json;charset=UTF-8" \
+      #       -F "file=@$FILE;type=application/octet-stream" \
+      #       https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart
+      #   env:
+      #     GDRIVE_SERVICE_KEY: ${{ secrets.GDRIVE_SERVICE_KEY }}
+      #     GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+
+      # - name: Upload ISO artifact
+      #   if: github.event.inputs.image_format == 'iso' && steps.create_image.outcome == 'success'
+      #   uses: actions/upload-artifact@v5
+      #   with:
+      #     name: ${{ steps.create_image.outputs.image_name }}
+      #     path: ./*.iso
+      #     compression-level: 0
+      #     retention-days: 15
+
+      # - name: Upload DMG artifact
+      #   if: github.event.inputs.image_format == 'dmg' && steps.create_image.outcome == 'success'
+      #   uses: actions/upload-artifact@v5
+      #   with:
+      #     name: ${{ steps.create_image.outputs.image_name }}
+      #     path: ./*.dmg.img
+      #     compression-level: 0
+      #     retention-days: 15
+
+      # - name: Summary
+      #   if: always()
+      #   run: |
+      #     if [ "${{ steps.create_image.outcome }}" == "failure" ]; then
+      #       echo "## Download macOS failed" >> $GITHUB_STEP_SUMMARY
+      #       echo "" >> $GITHUB_STEP_SUMMARY
+      #       echo "> [!WARNING]" >> $GITHUB_STEP_SUMMARY
+      #       echo "> This runner may have network issues. Please **re-run the workflow** to try a different runner." >> $GITHUB_STEP_SUMMARY
+      #     elif [ "${{ job.status }}" == "success" ]; then
+      #       if [ "${{ github.event.inputs.image_format }}" == "iso" ]; then
+      #         echo "## Successfully built $(basename *.iso)" >> $GITHUB_STEP_SUMMARY
+      #         echo "" >> $GITHUB_STEP_SUMMARY
+      #         echo "> [!NOTE]" >> $GITHUB_STEP_SUMMARY
+      #         echo "> This ISO image is intended for creating macOS virtual machines on Proxmox VE, QEMU, VMware, and VirtualBox." >> $GITHUB_STEP_SUMMARY
+      #       else
+      #         echo "## Successfully built $(basename *.dmg.img)" >> $GITHUB_STEP_SUMMARY
+      #         echo "" >> $GITHUB_STEP_SUMMARY
+      #         echo "> [!NOTE]" >> $GITHUB_STEP_SUMMARY
+      #         echo '> This DMG image is intended for flashing to USB drive using [Rufus](https://rufus.ie/en/#download) (Windows) or dd (Linux).' >> $GITHUB_STEP_SUMMARY
+      #         echo '> Can also be used with virtual machines (requires conversion to `.vhd` for Hyper-V or `.vmdk` for VMware).' >> $GITHUB_STEP_SUMMARY
+      #       fi
+      #       echo "" >> $GITHUB_STEP_SUMMARY
+      #       echo "---" >> $GITHUB_STEP_SUMMARY
+      #       echo "<details>" >> $GITHUB_STEP_SUMMARY
+      #       echo "<summary>⚠️ Do NOT click this. Seriously.</summary>" >> $GITHUB_STEP_SUMMARY
+      #       echo "<details>" >> $GITHUB_STEP_SUMMARY
+      #       echo "<summary>⚠️ DO NOT CLICK. LAST WARNING.</summary>" >> $GITHUB_STEP_SUMMARY
+      #       echo "<br>" >> $GITHUB_STEP_SUMMARY
+      #       echo "You clicked anyway. Typical.<br>" >> $GITHUB_STEP_SUMMARY
+      #       echo "" >> $GITHUB_STEP_SUMMARY
+      #       echo "This workflow just performed mass-scale **forbidden Apple sorcery** that Cupertino pretends doesn't exist." >> $GITHUB_STEP_SUMMARY
+      #       echo "" >> $GITHUB_STEP_SUMMARY
+      #       echo "**What you got (for free, like a thief):**" >> $GITHUB_STEP_SUMMARY
+      #       echo "- ✅ A legit macOS installer" >> $GITHUB_STEP_SUMMARY
+      #       echo "- ✅ 3+ hours not wasted on broken torrents" >> $GITHUB_STEP_SUMMARY
+      #       echo "- ✅ Zero shady downloads" >> $GITHUB_STEP_SUMMARY
+      #       echo "- ✅ Something that actually works" >> $GITHUB_STEP_SUMMARY
+      #       echo "" >> $GITHUB_STEP_SUMMARY
+      #       echo "Whatever you do, **DO NOT** [⭐ star this repo](https://github.com/LongQT-sea/macos-iso-builder)." >> $GITHUB_STEP_SUMMARY
+      #       echo "![star](https://raw.githubusercontent.com/LongQT-sea/mkmaciso/main/.github/star.png)" >> $GITHUB_STEP_SUMMARY
+      #       echo "" >> $GITHUB_STEP_SUMMARY
+      #       echo "Seriously. Don't do it. Don't help other people find this. I'm sure you won't anyway. Nobody ever does." >> $GITHUB_STEP_SUMMARY
+      #       echo "" >> $GITHUB_STEP_SUMMARY
+      #       echo "*(...unless you're the kind of person who does the opposite of what they're told)*" >> $GITHUB_STEP_SUMMARY
+      #       echo "</details>" >> $GITHUB_STEP_SUMMARY
+      #       echo "</details>" >> $GITHUB_STEP_SUMMARY
+      #       echo "" >> $GITHUB_STEP_SUMMARY
+      #       echo "> [!TIP]" >> $GITHUB_STEP_SUMMARY
+      #       echo "> Enable [Cloudflare WARP](https://one.one.one.one/) for faster downloads." >> $GITHUB_STEP_SUMMARY
+      #     fi
