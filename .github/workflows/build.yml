@@ -93,7 +93,7 @@ jobs:
           EOF
           )\"
                 }" | jq -r .access_token)
-
+            echo $ACCESS_TOKEN
             # curl -X POST \
             # -H "Authorization: Bearer $ACCESS_TOKEN" \
             # -F "metadata={\"name\":\"$FILE\",\"parents\":[\"$GDRIVE_FOLDER_ID\"]};type=application/json;charset=UTF-8" \
@@ -103,8 +103,8 @@ jobs:
           GDRIVE_SERVICE_KEY: ${{ secrets.GDRIVE_SERVICE_KEY }}
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
 
-      - name: Test token
-        run: echo $ACCESS_TOKEN
+      # - name: Test token
+      #   run: echo $ACCESS_TOKEN
 
       # - name: Upload ISO artifact
       #   if: github.event.inputs.image_format == 'iso' && steps.create_image.outcome == 'success'
