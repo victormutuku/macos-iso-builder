@@ -63,24 +63,41 @@ jobs:
             echo "image_name=$(basename *.dmg.img)" >> $GITHUB_OUTPUT
           fi
 
-      - name: Install torrent tool
-        run: brew install mktorrent
-
-      - name: Create torrent file
+      - name: Upload to Google Drive
+        if: steps.create_image.outcome == 'success'
         run: |
           FILE=$(ls *.iso 2>/dev/null || ls *.dmg.img)
-          mktorrent \
-          -o "$FILE.torrent" \
-          -a udp://tracker.opentrackr.org:1337/announce \
-          -a udp://tracker.openbittorrent.com:6969/announce \
-          -a udp://tracker.internetwarriors.net:1337/announce \
-          "$FILE"
-          
-      - name: Upload torrent
-        uses: actions/upload-artifact@v5
-        with:
-          name: torrent-file
-          path: ./*.torrent
+
+          echo "$GDRIVE_SERVICE_KEY" > key.json
+
+          ACCESS_TOKEN=$(curl -s \
+            -X POST https://oauth2.googleapis.com/token \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"grant_type\":\"urn:ietf:params:oauth:grant-type:jwt-bearer\",
+              \"assertion\":\"$(python3 - <<EOF
+          import json, jwt, time
+          key=json.load(open('key.json'))
+          payload={
+            'iss':key['client_email'],
+            'scope':'https://www.googleapis.com/auth/drive.file',
+            'aud':'https://oauth2.googleapis.com/token',
+            'exp':int(time.time())+3600,
+            'iat':int(time.time())
+          }
+          print(jwt.encode(payload, key['private_key'], algorithm='RS256'))
+          EOF
+          )\"
+                }" | jq -r .access_token)
+
+            curl -X POST \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -F "metadata={name:'$FILE', parents:['$GDRIVE_FOLDER_ID']};type=application/json;charset=UTF-8" \
+            -F "file=@$FILE;type=application/octet-stream" \
+            https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart
+        env:
+          GDRIVE_SERVICE_KEY: ${{ secrets.GDRIVE_SERVICE_KEY }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
 
       - name: Upload ISO artifact
         if: github.event.inputs.image_format == 'iso' && steps.create_image.outcome == 'success'
