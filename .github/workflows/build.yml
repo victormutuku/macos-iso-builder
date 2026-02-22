@@ -34,6 +34,7 @@ on:
 jobs:
   build-macos-image:
     runs-on: macos-15-intel
+    environment: Test
     timeout-minutes: 80
 
     steps:
@@ -63,6 +64,9 @@ jobs:
             echo "image_name=$(basename *.dmg.img)" >> $GITHUB_OUTPUT
           fi
 
+      - name: Install dependencies
+        run: pip install PyJWT cryptography requests
+        
       - name: Upload to Google Drive
         if: steps.create_image.outcome == 'success'
         run: |
